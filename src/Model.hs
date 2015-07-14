@@ -1,9 +1,11 @@
 module Model
   ( Board
   , Player(..)
+  , GameStatus(..)
   , newBoard
+  , toList
   , nextPlayer
-  , gameState
+  , gameStatus
   , move
   )
 where
@@ -20,7 +22,7 @@ data Player = X | O
 data Board = Board (V3 (V3 (Maybe Player)))
     deriving (Show)
 
-data GameState =
+data GameStatus =
     InProgress
     | NoMovesLeft
     | Won Player
@@ -35,8 +37,11 @@ newBoard = Board (V3 row row row)
     where
         row = V3 Nothing Nothing Nothing
 
-gameState :: Board -> GameState
-gameState b =
+toList :: Board -> [[Maybe Player]]
+toList (Board m) = [m^.._x.folded, m^.._y.folded, m^.._z.folded]
+
+gameStatus :: Board -> GameStatus
+gameStatus b =
     if playerWon X b then Won X
     else if playerWon O b then Won O
          else if hasFreeMoves b then InProgress
