@@ -16,4 +16,5 @@ executable brick-devlunch
   build-depends:       base >=4.7 && <4.8,
                        brick,
                        lens,
-                       linear
+                       linear,
+                       vty
