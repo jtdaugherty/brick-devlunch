@@ -69,7 +69,7 @@ playerWonDiagonal p m =
     in (m^._x._x, m^._y._y, m^._z._z) == (v, v, v)
 
 move :: (Int, Int) -> (Player, Board) -> (Player, Board)
-move _ (p, b) | gameState b /= InProgress = (p, b)
+move _ (p, b) | gameStatus b /= InProgress = (p, b)
 move loc (p, b@(Board m)) | m^.(spaceLens loc).to isJust = (p, b)
 move loc (p, Board m) = (nextPlayer p, Board new)
     where
