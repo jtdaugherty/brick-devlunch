@@ -37,12 +37,10 @@ newBoard = Board (V3 row row row)
 
 gameState :: Board -> GameState
 gameState b =
-    let xWon = playerWon X b
-        oWon = playerWon O b
-    in if xWon then Won X
-       else if oWon then Won O
-            else if hasFreeMoves b then InProgress
-                 else NoMovesLeft
+    if playerWon X b then Won X
+    else if playerWon O b then Won O
+         else if hasFreeMoves b then InProgress
+              else NoMovesLeft
 
 hasFreeMoves :: Board -> Bool
 hasFreeMoves (Board m) =
