@@ -78,12 +78,12 @@ move loc (p, Board m) = (nextPlayer p, Board new)
 spaceLens (r, c) = (getRowL r).(getColL c)
     where
         getRowL v = case v of
-                      1 -> _x
-                      2 -> _y
-                      3 -> _z
+                      0 -> _x
+                      1 -> _y
+                      2 -> _z
                       _ -> error $ "Invalid row position: " <> (show v)
         getColL v = case v of
-                      1 -> _x
-                      2 -> _y
-                      3 -> _z
+                      0 -> _x
+                      1 -> _y
+                      2 -> _z
                       _ -> error $ "Invalid column position: " <> (show v)
