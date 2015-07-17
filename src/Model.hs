@@ -66,7 +66,9 @@ playerWonRows p m =
 playerWonDiagonal :: Player -> V3 (V3 (Maybe Player)) -> Bool
 playerWonDiagonal p m =
     let v = Just p
-    in (m^._x._x, m^._y._y, m^._z._z) == (v, v, v)
+    in or [ (m^._x._x, m^._y._y, m^._z._z) == (v, v, v)
+          , (m^._x._z, m^._y._y, m^._z._x) == (v, v, v)
+          ]
 
 move :: (Int, Int) -> (Player, Board) -> (Player, Board)
 move _ (p, b) | gameStatus b /= InProgress = (p, b)
