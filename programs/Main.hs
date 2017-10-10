@@ -6,12 +6,12 @@ import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Lens
 import Data.List (intersperse)
-import Data.Default
 import Data.Monoid
 import Graphics.Vty
 
 import Model
 
+import Brick
 import Brick.Main
 import Brick.Util
 import Brick.AttrMap
@@ -36,7 +36,7 @@ cursorAttr = "cursor"
 boardAttr :: AttrName
 boardAttr = "board"
 
-drawUI :: St -> [Widget]
+drawUI :: St -> [Widget ()]
 drawUI (St (p, b) cur) = [ui]
     where
         ui = center $ withBorderStyle unicode $
@@ -50,8 +50,8 @@ drawUI (St (p, b) cur) = [ui]
                 InProgress -> str "Make a move."
                 NoMovesLeft -> str "No moves left, game over!"
 
-drawBoard :: (Int, Int) -> Board -> Widget
-drawBoard cursor board = border $ withDefaultAttr boardAttr rows
+drawBoard :: (Int, Int) -> Board -> Widget ()
+drawBoard cursor board = border $ withDefAttr boardAttr rows
     where
         rows = vBox $ intersperse rowBorder $
                       drawRow <$> zip [0..] (toList board)
@@ -63,16 +63,16 @@ drawBoard cursor board = border $ withDefaultAttr boardAttr rows
             | (c, piece) <- zip [0..] row
             ]
 
-drawPiece :: Bool -> Maybe Player -> Widget
+drawPiece :: Bool -> Maybe Player -> Widget ()
 drawPiece selected piece =
     let w = str $ maybe " " show piece
         attr = if selected then cursorAttr else boardAttr
     in withAttr attr $
-       padLeftRight (Pad 2) $
-       padTopBottom (Pad 1) w
+       padLeftRight 2 $
+       padTopBottom 1 w
 
-appEvent :: St -> Event -> EventM (Next St)
-appEvent st (EvKey k []) =
+appEvent :: St -> BrickEvent () e -> EventM () (Next St)
+appEvent st (VtyEvent (EvKey k [])) =
     case k of
         KChar 'r'  -> continue initialState
         KChar 'q'  -> halt st
@@ -91,14 +91,13 @@ theMap = attrMap defAttr
     , (boardAttr,   white `on` blue)
     ]
 
-app :: App St Event
+app :: App St e ()
 app =
     App { appDraw = drawUI
         , appHandleEvent = appEvent
         , appAttrMap = const theMap
         , appChooseCursor = neverShowCursor
         , appStartEvent = return
-        , appLiftVtyEvent = id
         }
 
 main :: IO ()
