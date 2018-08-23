@@ -18,4 +18,6 @@ executable brick-devlunch
                        brick,
                        lens,
                        linear,
-                       vty
+                       vty,
+                       random,
+                       stm

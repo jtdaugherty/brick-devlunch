@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Control.Applicative ((<$>))
-import Control.Monad (void)
+import Control.Monad (void, forever)
+import Control.Monad.IO.Class
 import Control.Lens
 import Data.List (intersperse)
 import Data.Monoid
@@ -12,6 +12,7 @@ import Graphics.Vty
 import Model
 
 import Brick
+import Brick.BChan
 import Brick.Main
 import Brick.Util
 import Brick.AttrMap
@@ -20,85 +21,75 @@ import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
 
-data St =
-    St { _gameState :: (Player, Board)
-       , _cursor :: (Int, Int)
-       }
+import Control.Concurrent (threadDelay, forkIO)
+import Brick.BChan (newBChan, writeBChan)
+import Control.Concurrent.STM
 
-makeLenses ''St
-
-initialState :: St
-initialState = St (X, newBoard) (0, 0)
-
-cursorAttr :: AttrName
-cursorAttr = "cursor"
-
-boardAttr :: AttrName
-boardAttr = "board"
+data Tick = Tick
 
 drawUI :: St -> [Widget ()]
-drawUI (St (p, b) cur) = [ui]
+drawUI st = [ui]
     where
-        ui = center $ withBorderStyle unicode $
-             currentPlayer p <=>
-             drawBoard cur b <=>
-             drawGameStatus b
-        currentPlayer pl = str $ "Current player: " <> (show pl)
-        drawGameStatus b =
-            case gameStatus b of
-                Won p -> str $ show p <> " won!"
-                InProgress -> str "Make a move."
-                NoMovesLeft -> str "No moves left, game over!"
+        ui = withBorderStyle unicode $
+            borderWithLabel
+            (str $ getString st)
+            $ withAttr lineAttr rows
+            where
+                rows = drawBox $ getNoiseValues st
 
-drawBoard :: (Int, Int) -> Board -> Widget ()
-drawBoard cursor board = border $ withDefAttr boardAttr rows
-    where
-        rows = vBox $ intersperse rowBorder $
-                      drawRow <$> zip [0..] (toList board)
-        rowBorder = hBox $ intersperse (borderElem bsIntersectFull) $
-                           replicate 3 $ hLimit 5 hBorder
-        drawRow (r, row) = hBox $
-          intersperse (vLimit 3 vBorder) $
-            [ drawPiece ((r, c) == cursor) piece
-            | (c, piece) <- zip [0..] row
-            ]
+drawBox :: [Int] -> Widget ()
+--drawBox vals = hBox [ drawColumn v | v <- vals ]
+drawBox = hBox . map drawColumn
 
-drawPiece :: Bool -> Maybe Player -> Widget ()
-drawPiece selected piece =
-    let w = str $ maybe " " show piece
-        attr = if selected then cursorAttr else boardAttr
-    in withAttr attr $
-       padLeftRight 2 $
-       padTopBottom 1 w
+drawColumn :: Int -> Widget ()
+drawColumn n = vBox [ hLimit 1 $ fill ' ' , padBottom (Pad (n-1)) (str "X")]
 
-appEvent :: St -> BrickEvent () e -> EventM () (Next St)
-appEvent st (VtyEvent (EvKey k [])) =
+appEvent :: TVar Int -> St -> BrickEvent () Tick -> EventM () (Next St)
+appEvent delay st (VtyEvent (EvKey k [])) =
     case k of
-        KChar 'r'  -> continue initialState
         KChar 'q'  -> halt st
         KEsc       -> halt st
-        KChar ' '  -> continue $ st & gameState %~ move (st^.cursor)
-        KUp        -> continue $ st & cursor._1 %~ (max 0 . subtract 1)
-        KLeft      -> continue $ st & cursor._2 %~ (max 0 . subtract 1)
-        KDown      -> continue $ st & cursor._1 %~ (min 2 . (+ 1))
-        KRight     -> continue $ st & cursor._2 %~ (min 2 . (+ 1))
+        KChar '+'  -> do
+            liftIO $ atomically $ modifyTVar delay (+ 100000)
+            continue st
+        KChar '-'  -> do
+            liftIO $ atomically $ modifyTVar delay ((-) 100000)
+            continue st
         _          -> continue st
-appEvent st _ = continue st
+appEvent _ st (AppEvent Tick) = do
+    st' <- liftIO $ step st
+    continue st'
+appEvent _ st _ = continue st
+
+lineAttr, emptyAttr :: AttrName
+lineAttr = "lineAttr"
+emptyAttr = "emptyAttr"
 
 theMap :: AttrMap
 theMap = attrMap defAttr
-    [ (cursorAttr,  black `on` yellow)
-    , (boardAttr,   white `on` blue)
+    [ (lineAttr,  red `on` white)
+    , (emptyAttr,  white `on` white)
     ]
 
-app :: App St e ()
-app =
+app :: TVar Int -> App St Tick ()
+app delay =
     App { appDraw = drawUI
-        , appHandleEvent = appEvent
+        , appHandleEvent = appEvent delay
         , appAttrMap = const theMap
         , appChooseCursor = neverShowCursor
         , appStartEvent = return
         }
 
+control_thread :: TVar Int -> BChan Tick -> IO ()
+control_thread delay chan = forever $ do
+    writeBChan chan Tick
+    ms <- atomically $ readTVar delay
+    threadDelay ms
+
+
 main :: IO ()
-main = void $ defaultMain app initialState
+main = do
+  chan <- newBChan 10
+  delay <- atomically $ newTVar 1000000
+  forkIO $ control_thread delay chan
+  void $ customMain (mkVty defaultConfig) (Just chan) (app delay) initialState
