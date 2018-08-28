@@ -1,7 +1,16 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
-module Ivy where
+module Ivy
+    ( ivyMain
+    )
+where
 import Foreign.C
 import Foreign.Ptr
+
+import Foreign.Storable
+import Control.Concurrent
+import Control.Concurrent.STM
+
+--import System.IO (hPutStrLn, stderr)
 
 foreign import ccall "IvyStart" ivyStart :: CString -> IO ()
 foreign import ccall "IvyStop" ivyStop :: IO ()
@@ -41,3 +50,34 @@ foreign import ccall "wrapper"
             Ptr (CString) -> --char **argv 
             IO ())) -- return void
  
+appName :: String
+appName = "Haskell plotter"
+
+ivyMain :: TVar Double -> IO ()
+ivyMain data_var = do
+    --hPutStrLn stderr "TEST"
+    app_name <- newCString appName
+    ready_msg <- newCString $ appName ++ " ready!"
+    ivyInit app_name ready_msg nullPtr nullPtr nullPtr nullPtr
+    addr <- newCString ""
+    ivyStart addr
+    regexp <- newCString "ground TELEMETRY_STATUS (.*)"
+    cb <- createIvyCb $ myCallback data_var
+    ivyBindMsg cb nullPtr regexp
+    ivyMainLoop
+
+myCallback:: TVar Double -> Ptr a -> Ptr a -> Int -> Ptr (CString) -> IO ()
+myCallback myVar _ _ _ dataPtr = do
+    val <- peek dataPtr
+    str <- peekCString val
+    --hPutStrLn stderr (last $ splitOn str)
+    atomically $ writeTVar myVar (read (last $ splitOn str) :: Double)
+
+wordsWhen     :: (Char -> Bool) -> String -> [String]
+wordsWhen p s =  case dropWhile p s of
+                          "" -> []
+                          s' -> w : wordsWhen p s''
+                                where (w, s'') = break p s'
+
+splitOn :: String -> [String]
+splitOn = wordsWhen (==' ') 

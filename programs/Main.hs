@@ -10,6 +10,7 @@ import Data.Monoid
 import Graphics.Vty
 
 import Model
+import qualified Ivy as I
 
 import Brick
 import Brick.BChan
@@ -24,6 +25,8 @@ import Brick.Widgets.Border.Style
 import Control.Concurrent (threadDelay, forkIO)
 import Brick.BChan (newBChan, writeBChan)
 import Control.Concurrent.STM
+import Numeric
+
 
 data Tick = Tick
 
@@ -33,16 +36,52 @@ drawUI st = [ui]
         ui = withBorderStyle unicode $
             borderWithLabel
             (str $ getString st)
-            $ withAttr lineAttr rows
+            $ rows
             where
-                rows = drawBox $ getNoiseValues st
+                vals = getValues st
+                minVal = if length vals == 0
+                         then 0
+                         else minimum vals
+                maxVal = if length vals == 0
+                         then 1
+                         else maximum vals
+                --rows = hBox [drawLabelY minVal maxVal, drawBox $ vals]
+                rows = hBox [customWidget minVal maxVal vals]
 
-drawBox :: [Int] -> Widget ()
---drawBox vals = hBox [ drawColumn v | v <- vals ]
-drawBox = hBox . map drawColumn
+customWidget :: Double -> Double -> [Double] -> Widget ()
+customWidget minVal maxVal vals =
+    Widget Fixed Fixed $ do
+        ctx <- getContext
+        let width = ctx^.availWidthL
+        let height = ctx^.availHeightL
+        let yAxis = drawLabelY minVal maxVal height
+        let figure = drawBox vals minVal maxVal height width
+        render $ hBox [yAxis, figure]
 
-drawColumn :: Int -> Widget ()
-drawColumn n = vBox [ hLimit 1 $ fill ' ' , padBottom (Pad (n-1)) (str "X")]
+-- draw y axis label, interleaved with '|'
+drawLabelY :: Double -> Double -> Int -> Widget ()
+drawLabelY minVal maxVal height = 
+    if minVal == maxVal
+    then vBox [str (showFFloat (Just 2) x " ") | x <- [fromIntegral height .. 1.0]]
+    else vBox [str (showFFloat (Just 2) x " ") | x <- [maxVal, (maxVal - dt) .. minVal]]
+        where
+            dt = (maxVal - minVal) / fromIntegral height
+
+
+-- drawBox get limits from [Double] (min, max)
+-- and scale the internals accordingly
+drawBox :: [Double] -> Double -> Double -> Int -> Int -> Widget ()
+drawBox vals minVal maxVal height width =
+    hBox [ drawColumn x minVal maxVal height | x <- vals ]
+
+
+drawColumn :: Double -> Double -> Double -> Int -> Widget ()
+drawColumn val minVal maxVal height =
+    vBox $ topFiller : bottomFillers
+                where
+                    topFiller = hLimit 1 $ fill ' '
+                    bottomFillers = replicate n (withAttr lineAttr (str "*"))
+                    n = round ( (val - minVal)/ (maxVal-minVal) * (fromIntegral height))
 
 appEvent :: TVar Int -> St -> BrickEvent () Tick -> EventM () (Next St)
 appEvent delay st (VtyEvent (EvKey k [])) =
@@ -50,10 +89,10 @@ appEvent delay st (VtyEvent (EvKey k [])) =
         KChar 'q'  -> halt st
         KEsc       -> halt st
         KChar '+'  -> do
-            liftIO $ atomically $ modifyTVar delay (+ 100000)
+            liftIO $ atomically $ modifyTVar delay ( + 100000)
             continue st
         KChar '-'  -> do
-            liftIO $ atomically $ modifyTVar delay ((-) 100000)
+            liftIO $ atomically $ modifyTVar delay (decreaseDelay 100000)
             continue st
         _          -> continue st
 appEvent _ st (AppEvent Tick) = do
@@ -61,14 +100,19 @@ appEvent _ st (AppEvent Tick) = do
     continue st'
 appEvent _ st _ = continue st
 
+decreaseDelay :: Int -> Int -> Int
+decreaseDelay b a =  if (a - b) < 0
+                     then 0
+                     else a - b
+
 lineAttr, emptyAttr :: AttrName
 lineAttr = "lineAttr"
 emptyAttr = "emptyAttr"
 
 theMap :: AttrMap
 theMap = attrMap defAttr
-    [ (lineAttr,  red `on` white)
-    , (emptyAttr,  white `on` white)
+    [ (lineAttr,  red `on` red)
+    , (emptyAttr,  white `on` black)
     ]
 
 app :: TVar Int -> App St Tick ()
@@ -91,5 +135,8 @@ main :: IO ()
 main = do
   chan <- newBChan 10
   delay <- atomically $ newTVar 1000000
+  source <- atomically $ newTVar 1.0
   forkIO $ control_thread delay chan
-  void $ customMain (mkVty defaultConfig) (Just chan) (app delay) initialState
+  forkIO $ I.ivyMain source
+  void $ customMain
+    (mkVty defaultConfig) (Just chan) (app delay) (initialState delay source)
