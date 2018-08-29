@@ -45,7 +45,6 @@ drawUI st = [ui]
                 maxVal = if length vals == 0
                          then 1
                          else maximum vals
-                --rows = hBox [drawLabelY minVal maxVal, drawBox $ vals]
                 rows = hBox [customWidget minVal maxVal vals]
 
 customWidget :: Double -> Double -> [Double] -> Widget ()
@@ -55,8 +54,16 @@ customWidget minVal maxVal vals =
         let width = ctx^.availWidthL
         let height = ctx^.availHeightL
         let yAxis = drawLabelY minVal maxVal height
+        let xAxis = drawLabelX width
         let figure = drawBox vals minVal maxVal height width
-        render $ hBox [yAxis, figure]
+        render $ vBox [(hBox [yAxis, figure]), xAxis ]
+
+-- draw the X axis, ideally with some time scale
+drawLabelX :: Int -> Widget ()
+drawLabelX width = hBox $ beginning ++ middle
+        where
+            beginning = replicate 4 (str " ")
+            middle = replicate (width-4) (str "-")
 
 -- draw y axis label, interleaved with '|'
 drawLabelY :: Double -> Double -> Int -> Widget ()
@@ -67,6 +74,13 @@ drawLabelY minVal maxVal height =
         where
             dt = (maxVal - minVal) / fromIntegral height
 
+{--
+myRange :: Double -> Double -> Double -> [Double]
+myRange maxVal minVal dt = 
+
+    where
+        steps = floor ( (maxVal - minVal) / dt)
+--}
 
 -- drawBox get limits from [Double] (min, max)
 -- and scale the internals accordingly
@@ -81,7 +95,7 @@ drawColumn val minVal maxVal height =
                 where
                     topFiller = hLimit 1 $ fill ' '
                     bottomFillers = replicate n (withAttr lineAttr (str "*"))
-                    n = round ( (val - minVal)/ (maxVal-minVal) * (fromIntegral height))
+                    n = max 1 (round ( (val - minVal)/ (maxVal-minVal) * (fromIntegral (height)) ) )
 
 appEvent :: TVar Int -> St -> BrickEvent () Tick -> EventM () (Next St)
 appEvent delay st (VtyEvent (EvKey k [])) =
@@ -111,7 +125,7 @@ emptyAttr = "emptyAttr"
 
 theMap :: AttrMap
 theMap = attrMap defAttr
-    [ (lineAttr,  red `on` red)
+    [ (lineAttr,  green `on` green)
     , (emptyAttr,  white `on` black)
     ]
 
