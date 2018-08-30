@@ -6,6 +6,7 @@ module Model
   , initialDelay
   , getString
   , getValues
+  , setTimer
   )
 where
 
@@ -30,15 +31,24 @@ makeLenses ''St
 initialDelay :: Int
 initialDelay = 1000000 -- 1 [s]
 
-initialState :: TVar Int -> TVar Double -> St
-initialState delay src = St 1 [] " N/A" delay src 100
+initialState :: TVar Int -> TVar Double -> IO St
+initialState delay src = do
+  let st = St 1 [] "N/A" delay src 1000
+  setTimer (id) st
+
 
 step:: St -> IO St
 step st = do
     src <- atomically $ readTVar (st ^. source)
-    delay <- atomically $ readTVar (st ^. delayMs)
     return $ st & values %~ ( take (st ^. storageLen) . (src :) )
-                & delayVal .~ (show $ (fromIntegral delay) / 1000000)
+
+setTimer :: (Int -> Int) -> St -> IO St
+setTimer f st = do
+  delay <- atomically $ do
+    modifyTVar (st ^. delayMs) f
+    readTVar (st ^. delayMs)
+  return $ st & delayVal .~ (show $ (fromIntegral delay) / 1000000)
+
 
 getString :: St -> String
 getString st = ("AcID: " ++ show (st ^. acId)

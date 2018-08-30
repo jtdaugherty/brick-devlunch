@@ -41,52 +41,50 @@ drawUI st = [ui]
                 vals = getValues st
                 minVal = if length vals == 0
                          then 0
-                         else minimum vals
+                         else max (-1.0) (minimum vals)
                 maxVal = if length vals == 0
                          then 1
                          else maximum vals
-                rows = hBox [customWidget minVal maxVal vals]
+                rows = makeBarChart minVal maxVal vals
 
-customWidget :: Double -> Double -> [Double] -> Widget ()
-customWidget minVal maxVal vals =
+makeBarChart :: Double -> Double -> [Double] -> Widget ()
+makeBarChart minVal maxVal vals =
     Widget Fixed Fixed $ do
         ctx <- getContext
-        let width = ctx^.availWidthL
         let height = ctx^.availHeightL
-        let yAxis = drawLabelY minVal maxVal height
-        let xAxis = drawLabelX width
-        let figure = drawBox vals minVal maxVal height width
-        render $ vBox [(hBox [yAxis, figure]), xAxis ]
+            drawableHeight = height - 1
+            yAxis = drawLabelY minVal maxVal drawableHeight
+            xAxis = drawLabelX
+            figure = drawBox vals minVal maxVal
+        render $ yAxis <+> (figure <=> xAxis)
 
 -- draw the X axis, ideally with some time scale
-drawLabelX :: Int -> Widget ()
-drawLabelX width = hBox $ beginning ++ middle
-        where
-            beginning = replicate 4 (str " ")
-            middle = replicate (width-4) (str "-")
+drawLabelX :: Widget ()
+drawLabelX = vLimit 1 $ fill '-'
 
 -- draw y axis label, interleaved with '|'
 drawLabelY :: Double -> Double -> Int -> Widget ()
 drawLabelY minVal maxVal height = 
     if minVal == maxVal
-    then vBox [str (showFFloat (Just 2) x " ") | x <- [fromIntegral height .. 1.0]]
-    else vBox [str (showFFloat (Just 2) x " ") | x <- [maxVal, (maxVal - dt) .. minVal]]
+    then vBox [str (showFFloat (Just 2) x " ") | x <- [fromIntegral height ::Double .. 1.0]]
+    else vBox [drawMyValue i | i <- [0..n]]
         where
-            dt = (maxVal - minVal) / fromIntegral height
+            n = height-1
+            dt = (maxVal - minVal) / fromIntegral n
+            drawMyValue i = if even i
+                            then str " "
+                            else str (showFFloat (Just 2) (maxVal - (fromIntegral i) *dt) " ")
 
-{--
-myRange :: Double -> Double -> Double -> [Double]
-myRange maxVal minVal dt = 
-
-    where
-        steps = floor ( (maxVal - minVal) / dt)
---}
 
 -- drawBox get limits from [Double] (min, max)
 -- and scale the internals accordingly
-drawBox :: [Double] -> Double -> Double -> Int -> Int -> Widget ()
-drawBox vals minVal maxVal height width =
-    hBox [ drawColumn x minVal maxVal height | x <- vals ]
+drawBox :: [Double] -> Double -> Double -> Widget ()
+drawBox vals minVal maxVal =
+    Widget Greedy Greedy $ do
+        ctx <- getContext
+        let width = ctx^.availWidthL
+            height = ctx^.availHeightL
+        render $ hBox [ drawColumn x minVal maxVal height | x <- (take width vals) ]
 
 
 drawColumn :: Double -> Double -> Double -> Int -> Widget ()
@@ -97,22 +95,22 @@ drawColumn val minVal maxVal height =
                     bottomFillers = replicate n (withAttr lineAttr (str "*"))
                     n = max 1 (round ( (val - minVal)/ (maxVal-minVal) * (fromIntegral (height)) ) )
 
-appEvent :: TVar Int -> St -> BrickEvent () Tick -> EventM () (Next St)
-appEvent delay st (VtyEvent (EvKey k [])) =
+appEvent :: St -> BrickEvent () Tick -> EventM () (Next St)
+appEvent st (VtyEvent (EvKey k [])) =
     case k of
         KChar 'q'  -> halt st
         KEsc       -> halt st
         KChar '+'  -> do
-            liftIO $ atomically $ modifyTVar delay ( + 100000)
-            continue st
+            st' <- liftIO $ setTimer ( + 100000) st 
+            continue st'
         KChar '-'  -> do
-            liftIO $ atomically $ modifyTVar delay (decreaseDelay 100000)
-            continue st
+            st' <- liftIO $ setTimer (decreaseDelay 100000) st 
+            continue st'
         _          -> continue st
-appEvent _ st (AppEvent Tick) = do
+appEvent st (AppEvent Tick) = do
     st' <- liftIO $ step st
     continue st'
-appEvent _ st _ = continue st
+appEvent st _ = continue st
 
 decreaseDelay :: Int -> Int -> Int
 decreaseDelay b a =  if (a - b) < 0
@@ -129,10 +127,10 @@ theMap = attrMap defAttr
     , (emptyAttr,  white `on` black)
     ]
 
-app :: TVar Int -> App St Tick ()
-app delay =
+app :: App St Tick ()
+app =
     App { appDraw = drawUI
-        , appHandleEvent = appEvent delay
+        , appHandleEvent = appEvent
         , appAttrMap = const theMap
         , appChooseCursor = neverShowCursor
         , appStartEvent = return
@@ -150,7 +148,8 @@ main = do
   chan <- newBChan 10
   delay <- atomically $ newTVar 1000000
   source <- atomically $ newTVar 1.0
-  forkIO $ control_thread delay chan
-  forkIO $ I.ivyMain source
+  void $ forkIO $ control_thread delay chan
+  void $ forkIO $ I.ivyMain source
+  st <- initialState delay source
   void $ customMain
-    (mkVty defaultConfig) (Just chan) (app delay) (initialState delay source)
+    (mkVty defaultConfig) (Just chan) (app) (st)
