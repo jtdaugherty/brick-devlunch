@@ -1,12 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Applicative ((<$>))
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class
 import Control.Lens
-import Data.List (intersperse)
-import Data.Monoid
 import Graphics.Vty
 
 import Model
@@ -14,11 +11,6 @@ import qualified Ivy as I
 
 import Brick
 import Brick.BChan
-import Brick.Main
-import Brick.Util
-import Brick.AttrMap
-import Brick.Widgets.Core
-import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
 
