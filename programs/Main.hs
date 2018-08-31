@@ -1,10 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
+{-- For book keeping:
+    To Exit:
+    `import System.Exit`
+    and call:
+    `exitWith ExitSuccess`
 
---import System.Environment
-import System.Exit
---import System.IO (hPutStrLn, stderr)
---import System.Console.GetOpt
+    To print message into stderr:
+    `import System.IO (hPutStrLn, stderr)`
+    and then:
+    `hPutStrLn stderr $ "HELLO"`
+    and run the program with:
+    `$BINARY_NAME 2>out.txt`
+    to redirect stderr to out.txt
+--}
+
 import qualified Options.Applicative as O
 import Data.Semigroup ((<>))
 
@@ -66,9 +76,6 @@ drawLabelX m = str $ labelX m
                  | otherwise = labelX (n- (length label)) ++ label
                     where
                         label = show n
-                        
-                        
-                        
 
 -- draw y axis label, interleaved with '|'
 drawLabelY :: Double -> Double -> Int -> Widget ()
@@ -83,7 +90,6 @@ drawLabelY minVal maxVal height =
                             then str " "
                             else str (showFFloat (Just 2) (maxVal - (fromIntegral i) *dt) " ")
 
-
 -- drawBox get limits from [Double] (min, max)
 -- and scale the internals accordingly
 drawBox :: [Double] -> Double -> Double -> Widget ()
@@ -94,7 +100,6 @@ drawBox vals minVal maxVal =
             height = ctx^.availHeightL
             xAxis = drawLabelX width
         render $ (hBox [ drawColumn x minVal maxVal height | x <- (take width vals) ]) <=> xAxis
-
 
 drawColumn :: Double -> Double -> Double -> Int -> Widget ()
 drawColumn val minVal maxVal height =
@@ -151,17 +156,9 @@ control_thread delay chan = forever $ do
     ms <- atomically $ readTVar delay
     threadDelay ms
 
--- TODO:
--- 1. figure out how to specify which element of the message to use (e.g. "last")
--- 2. pass the regular expression as an argument
--- 3. allow an optional argument for description
+-- TODO: 1) timer scale for dataset
 main :: IO ()
 main = do
-    let regexp = "ground TELEMETRY_STATUS (.*)"
-    -- args <- getArgs
-    --hPutStrLn stderr $ concat x
-    -- exitWith ExitSuccess
-    -- greet =<< O.execParser opts
     args <- O.execParser opts
     putStrLn $ show (period args)
     chan <- newBChan 10
@@ -172,15 +169,20 @@ main = do
     st <- initialState delay source (name args)
     void $ customMain
         (mkVty defaultConfig) (Just chan) (app) (st)
+        where
+            opts = O.info (appOptions O.<**> O.helper)
+                ( O.fullDesc
+                <> O.progDesc descString
+                <> O.header "Haskell Ivy plotter" )
 
-data Sample = Sample
+data AppOptions = AppOptions
   { regexpr :: String
   , name    :: String
   , period  :: Double
   , field   :: Int}
 
-sample :: O.Parser Sample
-sample = Sample
+appOptions :: O.Parser AppOptions
+appOptions = AppOptions
       <$> O.strOption
         ( O.long "rexepr"
         <> O.short 'r'
@@ -203,15 +205,6 @@ sample = Sample
         <> O.metavar "INDEX"
         <> O.value 1
         <> O.help "Index of the variable in a given message" )
-
-greet :: Sample -> IO ()
-greet (Sample expr name t n) = putStrLn $ "Hello, " ++ expr ++ name ++ (show t) ++ (show n)
-greet _ = return ()
-
-opts = O.info (sample O.<**> O.helper)
-      ( O.fullDesc
-     <> O.progDesc descString
-     <> O.header "Haskell Ivy plotter" )
 
 descString :: String
 descString = "Plots data from Ivy bus in terminal. For example: "
