@@ -5,16 +5,13 @@ module Ivy
 where
 import Foreign.C
 import Foreign.Ptr
-
 import Foreign.Storable
-import Control.Concurrent
 import Control.Concurrent.STM
 
---import System.IO (hPutStrLn, stderr)
-
 foreign import ccall "IvyStart" ivyStart :: CString -> IO ()
-foreign import ccall "IvyStop" ivyStop :: IO ()
+foreign import ccall "IvyStop" _ivyStop :: IO ()
 foreign import ccall "IvyMainLoop" ivyMainLoop :: IO ()
+foreign import ccall "IvySendMsg" _ivySendMsg :: Ptr CChar -> IO ()
 
 foreign import ccall "IvyInit" 
     ivyInit :: Ptr CChar -> -- application name
@@ -24,7 +21,6 @@ foreign import ccall "IvyInit"
                Ptr a ->
                Ptr a ->
                IO ()
-foreign import ccall "IvySendMsg" ivySendMsg :: Ptr CChar -> IO ()
 
 foreign import ccall "IvyBindMsg"
     ivyBindMsg :: FunPtr ( -- MsgCallback:
@@ -53,25 +49,23 @@ foreign import ccall "wrapper"
 appName :: String
 appName = "Haskell plotter"
 
-ivyMain :: TVar Double -> IO ()
-ivyMain data_var = do
-    --hPutStrLn stderr "TEST"
+ivyMain :: TVar Double -> String -> Int -> IO ()
+ivyMain data_var expr index = do
     app_name <- newCString appName
     ready_msg <- newCString $ appName ++ " ready!"
     ivyInit app_name ready_msg nullPtr nullPtr nullPtr nullPtr
     addr <- newCString ""
     ivyStart addr
-    regexp <- newCString "ground TELEMETRY_STATUS (.*)"
-    cb <- createIvyCb $ myCallback data_var
+    regexp <- newCString expr
+    cb <- createIvyCb $ myCallback data_var index
     ivyBindMsg cb nullPtr regexp
     ivyMainLoop
 
-myCallback:: TVar Double -> Ptr a -> Ptr a -> Int -> Ptr (CString) -> IO ()
-myCallback myVar _ _ _ dataPtr = do
+myCallback:: TVar Double -> Int -> Ptr a -> Ptr a -> Int -> Ptr (CString) -> IO ()
+myCallback myVar index _ _ _ dataPtr = do
     val <- peek dataPtr
     str <- peekCString val
-    --hPutStrLn stderr (last $ splitOn str)
-    atomically $ writeTVar myVar (read (last $ splitOn str) :: Double)
+    atomically $ writeTVar myVar (read ( (splitOn str) !! index ) :: Double)
 
 wordsWhen     :: (Char -> Bool) -> String -> [String]
 wordsWhen p s =  case dropWhile p s of

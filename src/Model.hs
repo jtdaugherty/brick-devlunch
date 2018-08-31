@@ -10,11 +10,7 @@ module Model
   )
 where
 
-import Control.Applicative ((<$>))
-import Control.Monad (void, forever)
 import Control.Lens
-import Data.List (intersperse)
-import Data.Monoid
 import Control.Concurrent.STM
 
 data St =
@@ -24,6 +20,7 @@ data St =
        , _delayMs :: TVar Int -- controls display speed
        , _source :: TVar Double -- at every step update `values` with `source`
        , _storageLen :: Int -- how many datapoints we keep 
+       , _regexpr :: String -- regular expression used
        }
 
 makeLenses ''St 
@@ -31,9 +28,9 @@ makeLenses ''St
 initialDelay :: Int
 initialDelay = 1000000 -- 1 [s]
 
-initialState :: TVar Int -> TVar Double -> IO St
-initialState delay src = do
-  let st = St 1 [] "N/A" delay src 1000
+initialState :: TVar Int -> TVar Double -> String -> IO St
+initialState delay src expr = do
+  let st = St 1 [] "N/A" delay src 1000 expr
   setTimer (id) st
 
 
@@ -47,12 +44,12 @@ setTimer f st = do
   delay <- atomically $ do
     modifyTVar (st ^. delayMs) f
     readTVar (st ^. delayMs)
-  return $ st & delayVal .~ (show $ (fromIntegral delay) / 1000000)
+  return $ st & delayVal .~ (show $ (fromIntegral delay :: Double) / 1000000)
 
 
 getString :: St -> String
 getString st = ("AcID: " ++ show (st ^. acId)
-                ++ " delay: " ++ (st ^. delayVal) ++ " [s]")
+                ++ " period: " ++ (st ^. delayVal) ++ " [s], " ++ (st ^. regexpr))
 
 getValues :: St -> [Double]
 getValues st = st ^. values

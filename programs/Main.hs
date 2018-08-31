@@ -1,6 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+--import System.Environment
+import System.Exit
+--import System.IO (hPutStrLn, stderr)
+--import System.Console.GetOpt
+import qualified Options.Applicative as O
+import Data.Semigroup ((<>))
+
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class
 import Control.Lens
@@ -18,7 +25,6 @@ import Control.Concurrent (threadDelay, forkIO)
 import Brick.BChan (newBChan, writeBChan)
 import Control.Concurrent.STM
 import Numeric
-
 
 data Tick = Tick
 
@@ -46,13 +52,23 @@ makeBarChart minVal maxVal vals =
         let height = ctx^.availHeightL
             drawableHeight = height - 1
             yAxis = drawLabelY minVal maxVal drawableHeight
-            xAxis = drawLabelX
             figure = drawBox vals minVal maxVal
-        render $ yAxis <+> (figure <=> xAxis)
+        render $ yAxis <+> figure
 
 -- draw the X axis, ideally with some time scale
-drawLabelX :: Widget ()
-drawLabelX = vLimit 1 $ fill '-'
+drawLabelX :: Int -> Widget ()
+drawLabelX m = str $ labelX m
+    where
+        labelX :: Int -> String
+        labelX 0 = ""
+        labelX 1 = "1"
+        labelX n | n `mod` 10 /= 0 = labelX (n-1) ++ "-"
+                 | otherwise = labelX (n- (length label)) ++ label
+                    where
+                        label = show n
+                        
+                        
+                        
 
 -- draw y axis label, interleaved with '|'
 drawLabelY :: Double -> Double -> Int -> Widget ()
@@ -76,7 +92,8 @@ drawBox vals minVal maxVal =
         ctx <- getContext
         let width = ctx^.availWidthL
             height = ctx^.availHeightL
-        render $ hBox [ drawColumn x minVal maxVal height | x <- (take width vals) ]
+            xAxis = drawLabelX width
+        render $ (hBox [ drawColumn x minVal maxVal height | x <- (take width vals) ]) <=> xAxis
 
 
 drawColumn :: Double -> Double -> Double -> Int -> Widget ()
@@ -134,14 +151,68 @@ control_thread delay chan = forever $ do
     ms <- atomically $ readTVar delay
     threadDelay ms
 
-
+-- TODO:
+-- 1. figure out how to specify which element of the message to use (e.g. "last")
+-- 2. pass the regular expression as an argument
+-- 3. allow an optional argument for description
 main :: IO ()
 main = do
-  chan <- newBChan 10
-  delay <- atomically $ newTVar 1000000
-  source <- atomically $ newTVar 1.0
-  void $ forkIO $ control_thread delay chan
-  void $ forkIO $ I.ivyMain source
-  st <- initialState delay source
-  void $ customMain
-    (mkVty defaultConfig) (Just chan) (app) (st)
+    let regexp = "ground TELEMETRY_STATUS (.*)"
+    -- args <- getArgs
+    --hPutStrLn stderr $ concat x
+    -- exitWith ExitSuccess
+    -- greet =<< O.execParser opts
+    args <- O.execParser opts
+    putStrLn $ show (period args)
+    chan <- newBChan 10
+    delay <- atomically $ newTVar (round (period args) * 1000000)
+    source <- atomically $ newTVar 1.0
+    void $ forkIO $ control_thread delay chan
+    void $ forkIO $ I.ivyMain source (regexpr args) (field args)
+    st <- initialState delay source (name args)
+    void $ customMain
+        (mkVty defaultConfig) (Just chan) (app) (st)
+
+data Sample = Sample
+  { regexpr :: String
+  , name    :: String
+  , period  :: Double
+  , field   :: Int}
+
+sample :: O.Parser Sample
+sample = Sample
+      <$> O.strOption
+        ( O.long "rexepr"
+        <> O.short 'r'
+        <> O.metavar "EXPR"
+        <> O.help "Regular expression for Ivy bus binding" )
+      <*> O.strOption
+        ( O.long "name"
+        <> O.short 'n'
+        <> O.metavar "NAME"
+        <> O.help "Display name of the variable")
+      <*> O.option O.auto
+        ( O.long "period"
+        <> O.short 't'
+        <> O.metavar "T"
+        <> O.value 1.0
+        <> O.help "Refresh period in seconds" )
+      <*> O.option O.auto
+        ( O.long "field"
+        <> O.short 'i'
+        <> O.metavar "INDEX"
+        <> O.value 1
+        <> O.help "Index of the variable in a given message" )
+
+greet :: Sample -> IO ()
+greet (Sample expr name t n) = putStrLn $ "Hello, " ++ expr ++ name ++ (show t) ++ (show n)
+greet _ = return ()
+
+opts = O.info (sample O.<**> O.helper)
+      ( O.fullDesc
+     <> O.progDesc descString
+     <> O.header "Haskell Ivy plotter" )
+
+descString :: String
+descString = "Plots data from Ivy bus in terminal. For example: "
+    ++ "brick-devlunch -r \"ground TELEMETRY_STATUS (.*)\" -n ping_time -t 1.0 -i 12"

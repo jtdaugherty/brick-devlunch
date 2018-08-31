@@ -21,4 +21,5 @@ executable brick-devlunch
                        linear,
                        vty,
                        random,
-                       stm
+                       stm,
+                       optparse-applicative
