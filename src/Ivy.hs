@@ -6,7 +6,10 @@ where
 import Foreign.C
 import Foreign.Ptr
 import Foreign.Storable
+import Foreign.Marshal.Array
 import Control.Concurrent.STM
+
+import System.IO (hPutStrLn, stderr)
 
 foreign import ccall "IvyStart" ivyStart :: CString -> IO ()
 foreign import ccall "IvyStop" _ivyStop :: IO ()
@@ -49,23 +52,36 @@ foreign import ccall "wrapper"
 appName :: String
 appName = "Haskell plotter"
 
-ivyMain :: TVar Double -> String -> Int -> IO ()
-ivyMain data_var expr index = do
+-- `data_var` for sharing data
+-- `source_var` is for sharing the sender ID (like AC_ID or for example 'ground')
+-- source is always the first element of the parsed callback data
+-- `expr` is the regular expression used for binding
+-- `index` determines which index holds the data
+ivyMain :: TVar Double -> TVar String -> String -> Int -> IO ()
+ivyMain data_var source_var expr index = do
     app_name <- newCString appName
     ready_msg <- newCString $ appName ++ " ready!"
     ivyInit app_name ready_msg nullPtr nullPtr nullPtr nullPtr
     addr <- newCString ""
     ivyStart addr
     regexp <- newCString expr
-    cb <- createIvyCb $ myCallback data_var index
+    cb <- createIvyCb $ myCallback data_var source_var index
     ivyBindMsg cb nullPtr regexp
     ivyMainLoop
 
-myCallback:: TVar Double -> Int -> Ptr a -> Ptr a -> Int -> Ptr (CString) -> IO ()
-myCallback myVar index _ _ _ dataPtr = do
-    val <- peek dataPtr
-    str <- peekCString val
-    atomically $ writeTVar myVar (read ( (splitOn str) !! index ) :: Double)
+-- TODO: make this more flexible?
+myCallback:: TVar Double -> TVar String ->
+             Int -> Ptr a -> Ptr a -> Int -> Ptr (CString) -> IO ()
+myCallback datapoint source index _ _ _ dataPtr = do
+    val <- peekArray 2 dataPtr
+    hPutStrLn stderr (show val)
+    src <- peekCString (val !! 0)
+    str <- peekCString (val !! 1)
+    hPutStrLn stderr ("str = " ++ show str)
+    let values = splitOn str
+    hPutStrLn stderr ("values = " ++ concat values)
+    atomically $ writeTVar datapoint (read ( values !! index ) :: Double)
+    atomically $ writeTVar source src
 
 wordsWhen     :: (Char -> Bool) -> String -> [String]
 wordsWhen p s =  case dropWhile p s of

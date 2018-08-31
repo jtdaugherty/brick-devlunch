@@ -24,7 +24,6 @@ import Control.Lens
 import Graphics.Vty
 
 import Model
-import qualified Ivy as I
 
 import Brick
 import Brick.BChan
@@ -47,27 +46,28 @@ drawUI st = [ui]
             $ rows
             where
                 vals = getValues st
+                period = getPeriod st
                 minVal = if length vals == 0
                          then 0
                          else max (-1.0) (minimum vals)
                 maxVal = if length vals == 0
                          then 1
                          else maximum vals
-                rows = makeBarChart minVal maxVal vals
+                rows = makeBarChart minVal maxVal vals period
 
-makeBarChart :: Double -> Double -> [Double] -> Widget ()
-makeBarChart minVal maxVal vals =
+makeBarChart :: Double -> Double -> [Double] -> Double -> Widget ()
+makeBarChart minVal maxVal vals period =
     Widget Fixed Fixed $ do
         ctx <- getContext
         let height = ctx^.availHeightL
             drawableHeight = height - 1
             yAxis = drawLabelY minVal maxVal drawableHeight
-            figure = drawBox vals minVal maxVal
+            figure = drawBox vals minVal maxVal period
         render $ yAxis <+> figure
 
 -- draw the X axis, ideally with some time scale
-drawLabelX :: Int -> Widget ()
-drawLabelX m = str $ labelX m
+drawLabelX :: Int -> Double -> Widget ()
+drawLabelX m period = str $ labelX m
     where
         labelX :: Int -> String
         labelX 0 = ""
@@ -75,31 +75,37 @@ drawLabelX m = str $ labelX m
         labelX n | n `mod` 10 /= 0 = labelX (n-1) ++ "-"
                  | otherwise = labelX (n- (length label)) ++ label
                     where
-                        label = show n
+                        label = show (round (nf * period))
+                        nf = (fromIntegral n :: Double)
 
 -- draw y axis label, interleaved with '|'
 drawLabelY :: Double -> Double -> Int -> Widget ()
 drawLabelY minVal maxVal height = 
     if minVal == maxVal
-    then vBox [str (showFFloat (Just 2) x " ") | x <- [fromIntegral height ::Double .. 1.0]]
+    then vBox 
+        [str (showFFloat (Just 2) x " ") |
+        x <- [fromIntegral height ::Double .. 1.0]]
     else vBox [drawMyValue i | i <- [0..n]]
         where
             n = height-1
             dt = (maxVal - minVal) / fromIntegral n
             drawMyValue i = if even i
                             then str " "
-                            else str (showFFloat (Just 2) (maxVal - (fromIntegral i) *dt) " ")
+                            else str (showFFloat (Just 2) 
+                                    (maxVal - (fromIntegral i) *dt) " ")
 
 -- drawBox get limits from [Double] (min, max)
 -- and scale the internals accordingly
-drawBox :: [Double] -> Double -> Double -> Widget ()
-drawBox vals minVal maxVal =
+drawBox :: [Double] -> Double -> Double -> Double -> Widget ()
+drawBox vals minVal maxVal period =
     Widget Greedy Greedy $ do
         ctx <- getContext
         let width = ctx^.availWidthL
             height = ctx^.availHeightL
-            xAxis = drawLabelX width
-        render $ (hBox [ drawColumn x minVal maxVal height | x <- (take width vals) ]) <=> xAxis
+            xAxis = drawLabelX width period
+        render $ (hBox 
+            [ drawColumn x minVal maxVal height | x <- (take width vals) ])
+            <=> xAxis
 
 drawColumn :: Double -> Double -> Double -> Int -> Widget ()
 drawColumn val minVal maxVal height =
@@ -107,7 +113,11 @@ drawColumn val minVal maxVal height =
                 where
                     topFiller = hLimit 1 $ fill ' '
                     bottomFillers = replicate n (withAttr lineAttr (str "*"))
-                    n = max 1 (round ( (val - minVal)/ (maxVal-minVal) * (fromIntegral (height)) ) )
+                    n = max 1
+                        (round (
+                            (val - minVal)/ (maxVal-minVal)
+                            * (fromIntegral (height))
+                        ))
 
 appEvent :: St -> BrickEvent () Tick -> EventM () (Next St)
 appEvent st (VtyEvent (EvKey k [])) =
@@ -156,17 +166,14 @@ control_thread delay chan = forever $ do
     ms <- atomically $ readTVar delay
     threadDelay ms
 
--- TODO: 1) timer scale for dataset
+
 main :: IO ()
 main = do
     args <- O.execParser opts
-    putStrLn $ show (period args)
     chan <- newBChan 10
-    delay <- atomically $ newTVar (round (period args) * 1000000)
-    source <- atomically $ newTVar 1.0
-    void $ forkIO $ control_thread delay chan
-    void $ forkIO $ I.ivyMain source (regexpr args) (field args)
-    st <- initialState delay source (name args)
+    delayVar <- atomically $ newTVar (round (period args) * 1000000)
+    void $ forkIO $ control_thread delayVar chan
+    st <- initializeState delayVar (regexpr args) (name args) (field args)
     void $ customMain
         (mkVty defaultConfig) (Just chan) (app) (st)
         where
@@ -208,4 +215,5 @@ appOptions = AppOptions
 
 descString :: String
 descString = "Plots data from Ivy bus in terminal. For example: "
-    ++ "brick-devlunch -r \"ground TELEMETRY_STATUS (.*)\" -n ping_time -t 1.0 -i 12"
+    ++ "brick-devlunch -r \"(.*) TELEMETRY_STATUS (.*)\""
+    ++ " -n ping_time -t 1.0 -i 11"
