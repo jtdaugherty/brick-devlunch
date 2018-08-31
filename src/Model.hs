@@ -1,91 +1,73 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Model
-  ( Board
-  , Player(..)
-  , GameStatus(..)
-  , newBoard
-  , toList
-  , nextPlayer
-  , gameStatus
-  , move
+  ( St
+  , step
+  , initializeState
+  , getString
+  , getValues
+  , getPeriod
+  , setTimer
   )
 where
 
-import Control.Applicative ((<$>))
-import Control.Lens ((^.), (^..), (.~), (&), to, folded)
-import Data.Monoid ((<>))
-import Data.Maybe (isJust, isNothing)
-import Linear (V3(..), _x, _y, _z, transpose)
+import qualified Ivy as I
+import Control.Lens
+import Control.Concurrent.STM
+import Control.Monad (void)
+import Control.Concurrent (forkIO)
 
-data Player = X | O
-    deriving (Eq, Show)
+data St =
+    St { _acId :: TVar String -- ID of the data source
+       , _acIdVal :: String -- string representation of the data source
+       , _values :: [Double] -- list of values to be displayed
+       , _delayVal :: String -- string representation of the delay
+       , _delayMs :: TVar Int -- controls display speed
+       , _source :: TVar Double -- at every step update `values` with `source`
+       , _storageLen :: Int -- how many datapoints we keep 
+       , _name :: String -- name of the displayed data field
+       }
 
-data Board = Board (V3 (V3 (Maybe Player)))
-    deriving (Show)
+makeLenses ''St 
 
-data GameStatus =
-    InProgress
-    | NoMovesLeft
-    | Won Player
-    deriving (Eq, Show)
+-- `delay_var` is shared with the timer thread
+-- `expr` is the rexepr for the Ivy bus
+-- `name` is the name of the data field
+-- `idx` is the index of the variable within the binded message
+initializeState :: TVar Int -> String -> String -> Int -> IO St
+initializeState delayVar expr name idx = do
+  dataVar <- atomically $ newTVar 1.0
+  sourceVar <- atomically $ newTVar "N/A"
+  void $ forkIO $ I.ivyMain dataVar sourceVar expr idx
+  let st = St sourceVar "N/A" [] "N/A" delayVar dataVar 1000 name
+  setTimer (id) st
 
-nextPlayer :: Player -> Player
-nextPlayer X = O
-nextPlayer O = X
+-- get new datapoint and store it
+-- get new source name and store it
+step:: St -> IO St
+step st = do
+    newDatapoint <- atomically $ readTVar (st ^. source)
+    newSource <- atomically $ readTVar (st ^. acId)
+    return $ st & values %~ ( take (st ^. storageLen) . (newDatapoint :) )
+                & acIdVal .~ newSource
 
-newBoard :: Board
-newBoard = Board (V3 row row row)
-    where
-        row = V3 Nothing Nothing Nothing
+-- update the refresh period
+-- clears the current data
+setTimer :: (Int -> Int) -> St -> IO St
+setTimer f st = do
+  delay <- atomically $ do
+    modifyTVar (st ^. delayMs) f
+    readTVar (st ^. delayMs)
+  return $ st & delayVal .~ (show $ (fromIntegral delay :: Double) / 1000000)
+              & values .~ []
 
-toList :: Board -> [[Maybe Player]]
-toList (Board m) = [m^.._x.folded, m^.._y.folded, m^.._z.folded]
 
-gameStatus :: Board -> GameStatus
-gameStatus b =
-    if playerWon X b then Won X
-    else if playerWon O b then Won O
-         else if hasFreeMoves b then InProgress
-              else NoMovesLeft
+getString :: St -> String
+getString st = ("source ID: " ++ show (st ^. acIdVal)
+                ++ " period: " ++ (st ^. delayVal)
+                ++ " [s], " ++ (st ^. name))
 
-hasFreeMoves :: Board -> Bool
-hasFreeMoves (Board m) =
-    or $ m^..folded.folded.to isNothing
+getValues :: St -> [Double]
+getValues st = st ^. values
 
-playerWon :: Player -> Board -> Bool
-playerWon p (Board m) =
-    or [ playerWonRows p m
-       , playerWonRows p $ transpose m
-       , playerWonDiagonal p m
-       ]
-
-playerWonRows :: Player -> V3 (V3 (Maybe Player)) -> Bool
-playerWonRows p m =
-    let v = Just p
-    in or $ (== (V3 v v v)) <$> [m^._x, m^._y, m^._z]
-
-playerWonDiagonal :: Player -> V3 (V3 (Maybe Player)) -> Bool
-playerWonDiagonal p m =
-    let v = Just p
-    in (v, v, v) `elem` [ (m^._x._x, m^._y._y, m^._z._z)
-                        , (m^._x._z, m^._y._y, m^._z._x)
-                        ]
-
-move :: (Int, Int) -> (Player, Board) -> (Player, Board)
-move _ (p, b) | gameStatus b /= InProgress = (p, b)
-move loc (p, b@(Board m)) | m^.(spaceLens loc).to isJust = (p, b)
-move loc (p, Board m) = (nextPlayer p, Board new)
-    where
-        new = m & (spaceLens loc) .~ (Just p)
-
-spaceLens (r, c) = (getRowL r).(getColL c)
-    where
-        getRowL v = case v of
-                      0 -> _x
-                      1 -> _y
-                      2 -> _z
-                      _ -> error $ "Invalid row position: " <> (show v)
-        getColL v = case v of
-                      0 -> _x
-                      1 -> _y
-                      2 -> _z
-                      _ -> error $ "Invalid column position: " <> (show v)
+getPeriod :: St -> Double
+getPeriod st = (read (st ^. delayVal) :: Double)
