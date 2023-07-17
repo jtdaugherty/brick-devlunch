@@ -1,5 +1,7 @@
+{-# LANGUAGE MultiWayIf #-}
 module Model
-  ( Board
+  ( GameState(..)
+  , Board
   , Player(..)
   , GameStatus(..)
   , newBoard
@@ -15,6 +17,11 @@ import Control.Lens ((^.), (^..), (.~), (&), to, folded)
 import Data.Monoid ((<>))
 import Data.Maybe (isJust, isNothing)
 import Linear (V3(..), _x, _y, _z, transpose)
+
+data GameState =
+    GameState { gameBoard :: Board
+              , gameCurrentPlayer :: Player
+              }
 
 data Player = X | O
     deriving (Eq, Show)
@@ -42,10 +49,10 @@ toList (Board m) = [m^.._x.folded, m^.._y.folded, m^.._z.folded]
 
 gameStatus :: Board -> GameStatus
 gameStatus b =
-    if playerWon X b then Won X
-    else if playerWon O b then Won O
-         else if hasFreeMoves b then InProgress
-              else NoMovesLeft
+    if | playerWon X b  -> Won X
+       | playerWon O b  -> Won O
+       | hasFreeMoves b -> InProgress
+       | otherwise      -> NoMovesLeft
 
 hasFreeMoves :: Board -> Bool
 hasFreeMoves (Board m) =
@@ -70,12 +77,15 @@ playerWonDiagonal p m =
                         , (m^._x._z, m^._y._y, m^._z._x)
                         ]
 
-move :: (Int, Int) -> (Player, Board) -> (Player, Board)
-move _ (p, b) | gameStatus b /= InProgress = (p, b)
-move loc (p, b@(Board m)) | m^.(spaceLens loc).to isJust = (p, b)
-move loc (p, Board m) = (nextPlayer p, Board new)
+move :: (Int, Int) -> GameState -> GameState
+move _ s | gameStatus (gameBoard s) /= InProgress = s
+move loc s@(GameState { gameBoard = b@(Board m) }) | m^.(spaceLens loc).to isJust = s
+move loc s@(GameState { gameBoard = Board m }) =
+    GameState { gameCurrentPlayer = nextPlayer (gameCurrentPlayer s)
+              , gameBoard = Board new
+              }
     where
-        new = m & (spaceLens loc) .~ (Just p)
+        new = m & (spaceLens loc) .~ (Just $ gameCurrentPlayer s)
 
 spaceLens (r, c) = (getRowL r).(getColL c)
     where

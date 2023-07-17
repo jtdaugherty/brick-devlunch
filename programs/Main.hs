@@ -21,14 +21,14 @@ import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
 
 data St =
-    St { _gameState :: (Player, Board)
+    St { _gameState :: GameState
        , _cursor :: (Int, Int)
        }
 
 makeLenses ''St
 
 initialState :: St
-initialState = St (X, newBoard) (0, 0)
+initialState = St (GameState newBoard X) (0, 0)
 
 cursorAttr :: AttrName
 cursorAttr = attrName "cursor"
@@ -37,7 +37,7 @@ boardAttr :: AttrName
 boardAttr = attrName "board"
 
 drawUI :: St -> [Widget ()]
-drawUI (St (p, b) cur) = [ui]
+drawUI (St (GameState b p) cur) = [ui]
     where
         ui = center $ withBorderStyle unicode $
              currentPlayer p <=>
