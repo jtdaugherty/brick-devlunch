@@ -6,20 +6,15 @@ module Main where
 import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Lens
-import Data.List (intersperse)
 import Data.Monoid
 import Graphics.Vty
 
 import Model
 
 import Brick
-import Brick.Main
-import Brick.Util
-import Brick.AttrMap
-import Brick.Widgets.Core
 import Brick.Widgets.Center
-import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
+import Brick.Widgets.Table
 
 data St =
     St { _gameState :: GameState
@@ -45,22 +40,19 @@ drawUI (St (GameState b p) cur) = [ui]
              drawBoard cur b <=>
              drawGameStatus b
         currentPlayer pl = str $ "Current player: " <> (show pl)
-        drawGameStatus b =
-            case gameStatus b of
-                Won p -> str $ show p <> " won!"
+        drawGameStatus st =
+            case gameStatus st of
+                Won winner -> str $ show winner <> " won!"
                 InProgress -> str "Make a move."
                 NoMovesLeft -> str "No moves left, game over!"
 
 drawBoard :: (Int, Int) -> Board -> Widget ()
-drawBoard cursor board = border $ withDefAttr boardAttr rows
+drawBoard cur board =
+    withDefAttr boardAttr $ renderTable (table rows)
     where
-        rows = vBox $ intersperse rowBorder $
-                      drawRow <$> zip [0..] (toList board)
-        rowBorder = hBox $ intersperse (borderElem bsIntersectFull) $
-                           replicate 3 $ hLimit 5 hBorder
-        drawRow (r, row) = hBox $
-          intersperse (vLimit 3 vBorder) $
-            [ drawPiece ((r, c) == cursor) piece
+        rows = drawRow <$> zip [0..] (toList board)
+        drawRow (r, row) =
+            [ drawPiece ((r, c) == cur) piece
             | (c, piece) <- zip [0..] row
             ]
 
