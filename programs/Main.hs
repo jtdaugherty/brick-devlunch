@@ -31,10 +31,10 @@ initialState :: St
 initialState = St (X, newBoard) (0, 0)
 
 cursorAttr :: AttrName
-cursorAttr = "cursor"
+cursorAttr = attrName "cursor"
 
 boardAttr :: AttrName
-boardAttr = "board"
+boardAttr = attrName "board"
 
 drawUI :: St -> [Widget ()]
 drawUI (St (p, b) cur) = [ui]
@@ -71,19 +71,41 @@ drawPiece selected piece =
        padLeftRight 2 $
        padTopBottom 1 w
 
-appEvent :: St -> BrickEvent () e -> EventM () (Next St)
-appEvent st (VtyEvent (EvKey k [])) =
+moveUp :: EventM () St ()
+moveUp = cursor._1 %= (max 0 . subtract 1)
+
+moveLeft :: EventM () St ()
+moveLeft = cursor._2 %= (max 0 . subtract 1)
+
+moveDown :: EventM () St ()
+moveDown = cursor._1 %= (min 2 . (+ 1))
+
+moveRight :: EventM () St ()
+moveRight = cursor._2 %= (min 2 . (+ 1))
+
+appEvent :: BrickEvent () e -> EventM () St ()
+appEvent (VtyEvent (EvKey k [])) =
     case k of
-        KChar 'r'  -> continue initialState
-        KChar 'q'  -> halt st
-        KEsc       -> halt st
-        KChar ' '  -> continue $ st & gameState %~ move (st^.cursor)
-        KUp        -> continue $ st & cursor._1 %~ (max 0 . subtract 1)
-        KLeft      -> continue $ st & cursor._2 %~ (max 0 . subtract 1)
-        KDown      -> continue $ st & cursor._1 %~ (min 2 . (+ 1))
-        KRight     -> continue $ st & cursor._2 %~ (min 2 . (+ 1))
-        _          -> continue st
-appEvent st _ = continue st
+        -- Reset
+        KChar 'r' -> put initialState
+
+        -- Cursor movement
+        KUp    -> moveUp
+        KLeft  -> moveLeft
+        KDown  -> moveDown
+        KRight -> moveRight
+
+        -- Make a move at the cursor position
+        KChar ' ' -> do
+            cur <- use cursor
+            gameState %= move cur
+
+        -- Quit
+        KChar 'q' -> halt
+        KEsc      -> halt
+
+        _          -> return ()
+appEvent _ = return ()
 
 theMap :: AttrMap
 theMap = attrMap defAttr
@@ -97,7 +119,7 @@ app =
         , appHandleEvent = appEvent
         , appAttrMap = const theMap
         , appChooseCursor = neverShowCursor
-        , appStartEvent = return
+        , appStartEvent = return ()
         }
 
 main :: IO ()
