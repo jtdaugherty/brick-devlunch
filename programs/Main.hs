@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
@@ -71,17 +72,18 @@ drawPiece selected piece =
        padLeftRight 2 $
        padTopBottom 1 w
 
-moveUp :: EventM () St ()
-moveUp = cursor._1 %= (max 0 . subtract 1)
+moveWith :: Lens' (Int, Int) Int -> (Int -> Int) -> EventM () St ()
+moveWith which f = cursor.which %= (min 2 . max 0 . f)
 
-moveLeft :: EventM () St ()
-moveLeft = cursor._2 %= (max 0 . subtract 1)
+moveVert, moveHoriz :: (Int -> Int) -> EventM () St ()
+moveVert  = moveWith _1
+moveHoriz = moveWith _2
 
-moveDown :: EventM () St ()
-moveDown = cursor._1 %= (min 2 . (+ 1))
-
-moveRight :: EventM () St ()
-moveRight = cursor._2 %= (min 2 . (+ 1))
+moveUp, moveDown, moveLeft, moveRight :: EventM () St ()
+moveUp    = moveVert (subtract 1)
+moveDown  = moveVert (+ 1)
+moveLeft  = moveHoriz (subtract 1)
+moveRight = moveHoriz (+ 1)
 
 appEvent :: BrickEvent () e -> EventM () St ()
 appEvent (VtyEvent (EvKey k [])) =
